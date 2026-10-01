@@ -5,57 +5,59 @@
 # Created Date: 2024-01-01
 # version ='0.0.1'
 # ---------------------------------------------------------------------------
-"""a_short_project_description"""
+"""Demo: one serial port shared by a sender thread and a receiver thread."""
 # ---------------------------------------------------------------------------
 
 import logging
+import random
 import threading
+import time
 
-from threadsafe_serial.threadsafe_serial import ThreadSafeSerial
+import serial
+
+from threadsafe_serial import ThreadSafeSerial
 
 
-def send_data(serial_manager):
-    """Send data to the serial port."""
-    import random
-
-    while True:
-        data = random.choice(["Hello\n", "World\n", "123\n"])
-        if data.lower() == "exit":
-            serial_manager.stop()
-        else:
-            serial_manager.write(data)
+def send_data(serial_manager: ThreadSafeSerial, stop: threading.Event):
+    """Send a message to the serial port every 100 ms."""
+    while not stop.wait(0.1):
+        try:
+            serial_manager.write(random.choice(["Hello\n", "World\n", "123\n"]))
+        except serial.SerialException as e:
+            print(f"Write failed: {e}")
 
 
 def listen_for_data(serial_manager: ThreadSafeSerial):
-    """Listen for data from the serial port."""
-    while True:
-        data = serial_manager.read_until()
-        if data:
+    """Print each line received from the serial port."""
+    while serial_manager.running:
+        data = serial_manager.readline(b"\n", timeout=1.0)
+        if data is not None:
             print(f"Received data: {data}")
 
 
 def main():
+    logging.basicConfig(level=logging.INFO)
+    stop = threading.Event()
+
     # Create a shared instance of ThreadSafeSerial
-    serial_manager = ThreadSafeSerial(baudrate=115200, search_pattern=r"ACM|USB")
+    with ThreadSafeSerial(baudrate=115200, search_pattern=r"ACM|USB") as serial_manager:
+        threads = [
+            threading.Thread(target=send_data, args=(serial_manager, stop)),
+            threading.Thread(target=listen_for_data, args=(serial_manager,)),
+        ]
+        for thread in threads:
+            thread.start()
 
-    # Start threads for each module
-    sender_thread = threading.Thread(
-        target=send_data, args=(serial_manager,), daemon=True
-    )
-    receiver_thread = threading.Thread(
-        target=listen_for_data, args=(serial_manager,), daemon=True
-    )
+        try:
+            while serial_manager.running:
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            print("Exiting...")
+        finally:
+            stop.set()
 
-    sender_thread.start()
-    receiver_thread.start()
-
-    try:
-        while True:
-            pass  # Main thread can perform other tasks or wait
-    except KeyboardInterrupt:
-        print("Exiting...")
-    finally:
-        serial_manager.stop()
+    for thread in threads:
+        thread.join()
 
 
 if __name__ == "__main__":

@@ -34,9 +34,9 @@ from threadsafe_serial import ThreadSafeSerial
 serial = ThreadSafeSerial(port="/dev/ttyUSB0", baudrate=115200)
 
 def reader():
-    while True:
-        line = serial.readline()
-        if line:
+    while serial.running:
+        line = serial.readline(timeout=1.0)  # waits up to 1 s for a complete line
+        if line is not None:
             print(f"Received: {line}")
 
 threading.Thread(target=reader, daemon=True).start()
@@ -64,15 +64,32 @@ with ThreadSafeSerial(baudrate=115200) as serial:
 
 | Method | Description |
 |---|---|
-| `read(size=-1)` | Read `size` bytes from the buffer (default: all available) |
-| `read_until(expected, max_bytes)` | Read up to a delimiter, returns `None` if not yet found |
-| `readline(terminator)` | Shorthand for `read_until(terminator)` |
-| `write(data)` | Blocking write (accepts `str` or `bytes`) |
-| `write_latest(data)` | Non-blocking write that replaces any pending command |
+| `read(size=-1, timeout=0)` | Read up to `size` bytes from the buffer (default: all available) |
+| `read_until(expected, max_bytes, timeout=0)` | Read up to a delimiter (not included), returns `None` if not yet found |
+| `readline(terminator, timeout=0)` | Shorthand for `read_until(terminator)` |
+| `write(data)` | Blocking write (accepts `str` or `bytes`); raises `SerialException` if disconnected or the write fails |
+| `write_latest(data)` | Non-blocking write that replaces any pending command; held and sent after a reconnect |
 | `detect_devices()` | List serial devices matching `search_pattern` |
 | `stop()` / `close()` | Stop background threads and close the port |
 | `in_waiting` | Number of buffered bytes (property) |
-| `is_open` | Whether the serial port is open (property) |
+| `is_open` | Whether the port is currently connected (property) |
+| `running` | `False` once stopped, or once reconnection has given up (property) |
+
+`timeout` on the read methods is in seconds: `0` returns immediately, `None`
+waits until data arrives or the connection stops. With `max_bytes`, a line
+longer than `max_bytes` is returned in `max_bytes`-sized pieces.
+
+### Reconnection
+
+The background reader thread detects a lost connection (on read, or when a
+write fails) and reopens the port every `timeout` seconds:
+
+- An explicit `port` is always reopened at the same path, never swapped for
+  another device. With `port=None`, the last connected device is preferred.
+- While disconnected, `write()` raises `serial.SerialException`; received data
+  already in the buffer is kept.
+- If `max_reconnect_attempts` is reached, `running` becomes `False` and
+  `write()` raises with the last connection error as its cause.
 
 ### Constructor parameters
 
@@ -107,6 +124,10 @@ reader = WindowedPacketReader(
 packet = reader.read_packet()  # returns payload bytes or None on timeout
 ```
 
+`read_callback` may return any number of bytes per call. Bytes after a packet
+are kept for the next `read_packet()` call. When the callback returns nothing,
+the reader sleeps `poll_interval` seconds (default 1 ms) before polling again.
+
 ## Development
 
 Requires [uv](https://docs.astral.sh/uv/).
@@ -116,6 +137,9 @@ uv sync
 uv run pytest
 uv run pytest --cov
 ```
+
+`tests/test_pty_integration.py` runs end-to-end against real pseudo-terminals
+and is skipped on Windows.
 
 ## License
 

@@ -16,7 +16,13 @@ class PacketReader(ABC):
 
 
 class WindowedPacketReader(PacketReader):
-    """Sliding window packet reader with start/end byte framing."""
+    """Sliding window packet reader with start/end byte framing.
+
+    `read_callback` may return any number of bytes per call. Bytes are kept
+    across calls, so packets that arrive together, or straddle a timeout, are
+    not lost. When the callback returns nothing, the reader sleeps
+    `poll_interval` seconds before polling again.
+    """
 
     def __init__(
         self,
@@ -25,27 +31,44 @@ class WindowedPacketReader(PacketReader):
         start_byte: int = 0xA5,
         end_byte: int = 0x5A,
         timeout: float = 1.0,
+        poll_interval: float = 0.001,
     ) -> None:
         super().__init__(read_callback)
         self.window_size = window_size
         self.start_byte = start_byte
         self.end_byte = end_byte
         self.timeout = timeout
+        self.poll_interval = poll_interval
+        self._window: deque[int] = deque(maxlen=window_size)
+        self._pending = bytearray()
 
     def read_packet(self) -> Optional[bytes]:
-        """Read packets using a sliding window."""
-        start_time = time.time()
-        buffer: deque[int] = deque(maxlen=self.window_size)
-
-        while time.time() - start_time <= self.timeout:
+        """Return the next packet's payload, or None if none arrives within timeout."""
+        deadline = time.monotonic() + self.timeout
+        packet = self._scan()
+        while packet is None:
             data = self.read_callback()
             if data:
-                buffer.extend(data)
+                self._pending.extend(data)
+                packet = self._scan()
+            elif time.monotonic() < deadline:
+                time.sleep(self.poll_interval)
+            if packet is None and time.monotonic() >= deadline:
+                break
+        return packet
 
-                if (
-                    len(buffer) == self.window_size
-                    and buffer[0] == self.start_byte
-                    and buffer[-1] == self.end_byte
-                ):
-                    return bytes(buffer)[1:-1]
+    def _scan(self) -> Optional[bytes]:
+        """Slide the window over pending bytes and return the first framed payload."""
+        for i, byte in enumerate(self._pending):
+            self._window.append(byte)
+            if (
+                len(self._window) == self.window_size
+                and self._window[0] == self.start_byte
+                and self._window[-1] == self.end_byte
+            ):
+                del self._pending[: i + 1]
+                packet = bytes(self._window)[1:-1]
+                self._window.clear()
+                return packet
+        self._pending.clear()
         return None

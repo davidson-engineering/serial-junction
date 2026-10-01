@@ -7,3 +7,5 @@ except PackageNotFoundError:
 
 from .threadsafe_serial import ThreadSafeSerial
 from .packet_reader import PacketReader, WindowedPacketReader
+
+__all__ = ["ThreadSafeSerial", "PacketReader", "WindowedPacketReader", "__version__"]

@@ -29,10 +29,10 @@ jobs:
       run: |
         # stop the build if there are Python syntax errors or undefined names
         uv run flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        uv run flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        # The GitHub editor is 127 chars wide
+        uv run flake8 src/ tests/ main.py --count --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
-      run: uv run pytest --cov --cov-report=term-missing
+      run: uv run pytest --cov --cov-report=term-missing --cov-report=html
     - name: Upload coverage report
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
       uses: actions/upload-artifact@v4

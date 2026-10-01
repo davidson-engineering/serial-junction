@@ -4,27 +4,8 @@ import threading
 import time
 
 import pytest
-from unittest.mock import MagicMock, patch, call
 
 import serial
-
-from threadsafe_serial import ThreadSafeSerial
-
-
-def make_manager(mock_serial):
-    with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial), \
-         patch.object(ThreadSafeSerial, "_read_serial"), \
-         patch.object(ThreadSafeSerial, "_write_serial"):
-        return ThreadSafeSerial(port="/dev/ttyTEST", baudrate=9600, timeout=0.01)
-
-
-@pytest.fixture
-def mock_serial():
-    mock = MagicMock(spec=serial.Serial)
-    mock.is_open = True
-    mock.in_waiting = 0
-    mock.read.return_value = b""
-    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -32,148 +13,42 @@ def mock_serial():
 # ---------------------------------------------------------------------------
 
 class TestWriteLatestBasic:
-    def test_sets_data_and_event(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"hello")
+    def test_sets_data_and_event(self, serial_manager):
+        serial_manager.write_latest(b"hello")
 
-        assert mgr._latest_write_data == b"hello"
-        assert mgr._latest_write_event.is_set()
-        mgr.running = False
+        assert serial_manager._latest_write_data == b"hello"
+        assert serial_manager._latest_write_event.is_set()
 
-    def test_accepts_string(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest("hello")
+    def test_accepts_string(self, serial_manager):
+        serial_manager.write_latest("hello")
 
-        assert mgr._latest_write_data == "hello"
-        assert mgr._latest_write_event.is_set()
-        mgr.running = False
+        assert serial_manager._latest_write_data == "hello"
+        assert serial_manager._latest_write_event.is_set()
 
-    def test_accepts_bytes(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"\x00\x01\x02")
+    def test_accepts_bytes(self, serial_manager):
+        serial_manager.write_latest(b"\x00\x01\x02")
 
-        assert mgr._latest_write_data == b"\x00\x01\x02"
-        mgr.running = False
+        assert serial_manager._latest_write_data == b"\x00\x01\x02"
 
-    def test_replaces_previous_unread_data(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"first")
-        mgr.write_latest(b"second")
-        mgr.write_latest(b"third")
+    def test_replaces_previous_unread_data(self, serial_manager):
+        serial_manager.write_latest(b"first")
+        serial_manager.write_latest(b"second")
+        serial_manager.write_latest(b"third")
 
-        assert mgr._latest_write_data == b"third"
-        mgr.running = False
+        assert serial_manager._latest_write_data == b"third"
 
-    def test_event_stays_set_after_multiple_writes(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"a")
-        mgr.write_latest(b"b")
+    def test_event_stays_set_after_multiple_writes(self, serial_manager):
+        serial_manager.write_latest(b"a")
+        serial_manager.write_latest(b"b")
 
-        assert mgr._latest_write_event.is_set()
-        mgr.running = False
+        assert serial_manager._latest_write_event.is_set()
 
-    def test_empty_bytes(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"")
+    @pytest.mark.parametrize("empty", [b"", ""])
+    def test_empty_data(self, serial_manager, empty):
+        serial_manager.write_latest(empty)
 
-        assert mgr._latest_write_data == b""
-        assert mgr._latest_write_event.is_set()
-        mgr.running = False
-
-    def test_empty_string(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest("")
-
-        assert mgr._latest_write_data == ""
-        assert mgr._latest_write_event.is_set()
-        mgr.running = False
-
-
-# ---------------------------------------------------------------------------
-# _write_serial consumption
-# ---------------------------------------------------------------------------
-
-class TestWriteSerialConsumption:
-    """Test that _write_serial correctly consumes data set by write_latest."""
-
-    def _run_one_write_cycle(self, mgr, mock_serial):
-        """Simulate one iteration of _write_serial."""
-        if not mgr._latest_write_event.is_set():
-            return False
-        with mgr._latest_write_lock:
-            data = mgr._latest_write_data
-            mgr._latest_write_data = None
-            mgr._latest_write_event.clear()
-        if data is None:
-            return False
-        with mgr.lock:
-            if isinstance(data, str):
-                data = data.encode("utf-8")
-            mock_serial.write(data)
-        return True
-
-    def test_consumes_data(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"cmd")
-
-        assert self._run_one_write_cycle(mgr, mock_serial)
-        mock_serial.write.assert_called_once_with(b"cmd")
-        assert mgr._latest_write_data is None
-        assert not mgr._latest_write_event.is_set()
-        mgr.running = False
-
-    def test_encodes_string_to_bytes(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest("hello")
-
-        self._run_one_write_cycle(mgr, mock_serial)
-        mock_serial.write.assert_called_once_with(b"hello")
-        mgr.running = False
-
-    def test_no_data_no_write(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        # Event not set, nothing to consume
-        assert not self._run_one_write_cycle(mgr, mock_serial)
-        mock_serial.write.assert_not_called()
-        mgr.running = False
-
-    def test_only_latest_value_sent(self, mock_serial):
-        """If write_latest is called 3 times before _write_serial runs,
-        only the last value should be written."""
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"old1")
-        mgr.write_latest(b"old2")
-        mgr.write_latest(b"latest")
-
-        self._run_one_write_cycle(mgr, mock_serial)
-        mock_serial.write.assert_called_once_with(b"latest")
-        mgr.running = False
-
-    def test_second_cycle_after_new_write(self, mock_serial):
-        """After consuming, a new write_latest should be picked up on the next cycle."""
-        mgr = make_manager(mock_serial)
-
-        mgr.write_latest(b"first")
-        self._run_one_write_cycle(mgr, mock_serial)
-
-        mgr.write_latest(b"second")
-        self._run_one_write_cycle(mgr, mock_serial)
-
-        assert mock_serial.write.call_count == 2
-        mock_serial.write.assert_has_calls([call(b"first"), call(b"second")])
-        mgr.running = False
-
-    def test_cleared_state_after_consume(self, mock_serial):
-        mgr = make_manager(mock_serial)
-        mgr.write_latest(b"x")
-        self._run_one_write_cycle(mgr, mock_serial)
-
-        assert mgr._latest_write_data is None
-        assert not mgr._latest_write_event.is_set()
-        # Second cycle should be a no-op
-        assert not self._run_one_write_cycle(mgr, mock_serial)
-        assert mock_serial.write.call_count == 1
-        mgr.running = False
+        assert serial_manager._latest_write_data == empty
+        assert serial_manager._latest_write_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -181,81 +56,83 @@ class TestWriteSerialConsumption:
 # ---------------------------------------------------------------------------
 
 class TestWriteSerialThread:
-    """Test _write_serial running as an actual thread."""
+    """The real _write_serial thread against a mocked port."""
 
-    def test_thread_sends_data(self, mock_serial):
-        """Start the real _write_serial thread and verify it sends queued data."""
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial), \
-             patch.object(ThreadSafeSerial, "_read_serial"):
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", baudrate=9600, timeout=0.01)
+    def test_thread_sends_data(self, make_manager, mock_serial, wait_until):
+        mgr = make_manager(writer=True)
+        mgr.write_latest(b"live_test")
 
-        try:
-            mgr.write_latest(b"live_test")
-            # Give the writer thread time to pick it up
-            time.sleep(0.3)
-            mock_serial.write.assert_called_with(b"live_test")
-        finally:
-            mgr.running = False
+        assert wait_until(lambda: mock_serial.write.called)
+        mock_serial.write.assert_called_once_with(b"live_test")
+        assert mgr._latest_write_data is None
+        assert not mgr._latest_write_event.is_set()
 
-    def test_thread_sends_only_latest(self, mock_serial):
-        """Rapid writes before the thread wakes — only the last should be sent."""
-        # Make write slow so we can queue multiple before it runs
-        write_event = threading.Event()
-        original_write = mock_serial.write
+    def test_thread_encodes_string(self, make_manager, mock_serial, wait_until):
+        mgr = make_manager(writer=True)
+        mgr.write_latest("hello")
+
+        assert wait_until(lambda: mock_serial.write.called)
+        mock_serial.write.assert_called_once_with(b"hello")
+
+    def test_thread_sends_only_latest(self, make_manager, mock_serial, wait_until):
+        """Values queued while a write is in flight collapse to the newest one."""
+        write_started = threading.Event()
+        release = threading.Event()
 
         def slow_write(data):
-            write_event.wait(timeout=1)
-            return original_write(data)
+            write_started.set()
+            release.wait(timeout=5)
 
-        mock_serial.write = MagicMock(side_effect=slow_write)
+        mock_serial.write.side_effect = slow_write
+        mgr = make_manager(writer=True)
 
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial), \
-             patch.object(ThreadSafeSerial, "_read_serial"):
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", baudrate=9600, timeout=0.01)
+        mgr.write_latest(b"first")
+        assert write_started.wait(timeout=5)
+        for i in range(20):
+            mgr.write_latest(f"val_{i}".encode())
+        release.set()
 
-        try:
-            # Queue many writes before the thread can process
-            for i in range(20):
-                mgr.write_latest(f"val_{i}".encode())
+        assert wait_until(lambda: mock_serial.write.call_count == 2)
+        time.sleep(0.2)
+        assert [c.args[0] for c in mock_serial.write.call_args_list] == [b"first", b"val_19"]
 
-            # Let the writer proceed
-            write_event.set()
-            time.sleep(0.3)
+    def test_pending_value_waits_for_connection(self, make_manager, mock_serial, wait_until):
+        mgr = make_manager(writer=True)
+        mgr._connected.clear()  # as if the reader thread were reconnecting
+        mgr.write_latest(b"cmd")
+        time.sleep(0.3)
+        mock_serial.write.assert_not_called()
 
-            # The writer should have sent at most a few values, and the
-            # last one should be from our batch
-            calls = mock_serial.write.call_args_list
-            assert len(calls) >= 1
-            # The final write should be one of the later values
-            last_written = calls[-1][0][0]
-            assert last_written.startswith(b"val_")
-        finally:
-            mgr.running = False
+        mgr._connected.set()
+        assert wait_until(lambda: mock_serial.write.called)
+        mock_serial.write.assert_called_once_with(b"cmd")
 
-    def test_thread_handles_serial_exception(self, mock_serial):
-        """_write_serial should call handle_disconnection on SerialException."""
-        mock_serial.write.side_effect = serial.SerialException("port gone")
+    def test_failed_value_is_retried_after_reconnect(self, make_manager, mock_serial, wait_until):
+        mock_serial.write.side_effect = [serial.SerialException("port gone"), None]
+        mgr = make_manager(writer=True)
+        mgr.write_latest(b"cmd")
 
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial), \
-             patch.object(ThreadSafeSerial, "_read_serial"), \
-             patch.object(ThreadSafeSerial, "handle_disconnection") as mock_hd:
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", baudrate=9600, timeout=0.01)
+        assert wait_until(lambda: not mgr.is_open)
+        assert wait_until(lambda: mgr._latest_write_data == b"cmd")  # requeued after the failure
 
-            try:
-                mgr.write_latest(b"fail")
-                time.sleep(0.3)
-                mock_hd.assert_called()
-            finally:
-                mgr.running = False
+        mgr._connected.set()  # as if the reader thread had reconnected
+        assert wait_until(lambda: mock_serial.write.call_count == 2)
+        assert mock_serial.write.call_args.args[0] == b"cmd"
 
-    def test_thread_stops_when_running_false(self, mock_serial):
-        """The writer thread should exit when running is set to False."""
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial), \
-             patch.object(ThreadSafeSerial, "_read_serial"):
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", baudrate=9600, timeout=0.01)
+    def test_newer_value_replaces_failed_one(self, make_manager, mock_serial, wait_until):
+        mock_serial.write.side_effect = [serial.SerialException("port gone"), None]
+        mgr = make_manager(writer=True)
+        mgr.write_latest(b"old")
+        assert wait_until(lambda: not mgr.is_open)
 
-        mgr.running = False
-        mgr.writer_thread.join(timeout=1)
+        mgr.write_latest(b"new")
+        mgr._connected.set()
+        assert wait_until(lambda: mock_serial.write.call_count == 2)
+        assert mock_serial.write.call_args.args[0] == b"new"
+
+    def test_thread_stops_on_stop(self, make_manager):
+        mgr = make_manager(writer=True)
+        mgr.stop()
         assert not mgr.writer_thread.is_alive()
 
 
@@ -266,20 +143,17 @@ class TestWriteSerialThread:
 class TestWriteAndWriteLatestInteraction:
     """Verify write() and write_latest() don't interfere with each other."""
 
-    def test_blocking_write_during_write_latest(self, mock_serial):
+    def test_blocking_write_during_write_latest(self, serial_manager, mock_serial):
         """Calling write() while write_latest data is pending should not corrupt either."""
-        mgr = make_manager(mock_serial)
-
-        mgr.write_latest(b"async_cmd")
-        mgr.write(b"sync_cmd")
+        serial_manager.write_latest(b"async_cmd")
+        serial_manager.write(b"sync_cmd")
 
         # Blocking write should have gone through immediately
         mock_serial.write.assert_called_once_with(b"sync_cmd")
         # write_latest data should still be pending
-        assert mgr._latest_write_data == b"async_cmd"
-        mgr.running = False
+        assert serial_manager._latest_write_data == b"async_cmd"
 
-    def test_write_latest_during_blocking_write(self, mock_serial):
+    def test_write_latest_during_blocking_write(self, serial_manager, mock_serial):
         """write_latest during a slow blocking write should not block."""
         write_started = threading.Event()
         write_release = threading.Event()
@@ -289,23 +163,41 @@ class TestWriteAndWriteLatestInteraction:
             write_release.wait(timeout=2)
 
         mock_serial.write.side_effect = slow_write
-        mgr = make_manager(mock_serial)
 
-        def do_blocking_write():
-            mgr.write(b"slow")
-
-        t = threading.Thread(target=do_blocking_write)
+        t = threading.Thread(target=serial_manager.write, args=(b"slow",))
         t.start()
 
-        write_started.wait(timeout=1)
-        # write() is holding the lock — write_latest should still return immediately
+        assert write_started.wait(timeout=1)
+        # write() is holding the write lock - write_latest should still return immediately
         start = time.monotonic()
-        mgr.write_latest(b"fast")
+        serial_manager.write_latest(b"fast")
         elapsed = time.monotonic() - start
 
         assert elapsed < 0.1  # write_latest should be near-instant
-        assert mgr._latest_write_data == b"fast"
+        assert serial_manager._latest_write_data == b"fast"
 
         write_release.set()
         t.join(timeout=2)
-        mgr.running = False
+
+    def test_reads_not_blocked_by_slow_write(self, serial_manager, mock_serial, feed):
+        """A blocked port write must not hold up buffer reads."""
+        write_started = threading.Event()
+        write_release = threading.Event()
+
+        def slow_write(data):
+            write_started.set()
+            write_release.wait(timeout=5)
+
+        mock_serial.write.side_effect = slow_write
+        t = threading.Thread(target=serial_manager.write, args=(b"slow",))
+        t.start()
+        assert write_started.wait(timeout=1)
+
+        feed(serial_manager, b"line\r\n")
+        start = time.monotonic()
+        assert serial_manager.in_waiting == 6
+        assert serial_manager.readline() == b"line"
+        assert time.monotonic() - start < 0.1
+
+        write_release.set()
+        t.join(timeout=2)
