@@ -1,47 +1,78 @@
 [project]
-name = "python-threadsafe-serial"
-description = "A serial port manager, allowing concurrent connections to a serial port instance"
+name = "serial-junction"
+description = "One serial port shared safely between threads, with buffered reads and automatic reconnection"
 dynamic = ["version"]
 readme = "README.md"
-requires-python = ">=3.9"
-license = { file = "LICENSE" }
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-  { email = "matthew@davidson.engineering", name = "Matthew Davidson" },
+  { name = "Matthew Davidson", email = "matthew@davidson.engineering" },
 ]
+keywords = ["serial", "pyserial", "uart", "rs232", "usb", "thread-safe", "threading", "reconnect", "hardware"]
 classifiers = [
   "Development Status :: 4 - Beta",
-  "Operating System :: Microsoft :: Windows",
-  "Operating System :: POSIX",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
   "Operating System :: MacOS",
-  "Programming Language :: Python :: 3.9",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Free Threading :: 2 - Beta",
+  "Topic :: Communications",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Hardware",
+  "Typing :: Typed",
 ]
-dependencies = ["pyserial>=3"]
+dependencies = ["pyserial>=3.1"]  # cancel_read/cancel_write
+
+[project.urls]
+Homepage = "https://github.com/davidson-engineering/serial-junction"
+Source = "https://github.com/davidson-engineering/serial-junction"
+Issues = "https://github.com/davidson-engineering/serial-junction/issues"
+Releases = "https://github.com/davidson-engineering/serial-junction/releases"
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling>=1.27", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/threadsafe_serial"]
+packages = ["src/serial_junction", "src/threadsafe_serial"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "examples", "README.md", "LICENSE"]
 
 [dependency-groups]
-dev = ["pytest>=7.1.1", "pytest-cov>=5.0.0", "coverage>=7.0", "flake8>=7.0"]
+dev = ["pytest>=8", "pytest-cov>=5.0.0", "coverage>=7.0", "ruff>=0.14", "mypy>=1.18", "types-pyserial"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A crash in a background thread must fail the test, not just print a traceback
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 
 [tool.coverage.run]
 branch = true
-source = ["src/threadsafe_serial"]
+source = ["src/serial_junction", "src/threadsafe_serial"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+fail_under = 90
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "PT", "RUF"]
+
+[tool.mypy]
+files = ["src"]
+strict = true
