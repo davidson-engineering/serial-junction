@@ -15,22 +15,22 @@ import time
 
 import serial
 
-from threadsafe_serial import ThreadSafeSerial
+from serial_junction import SerialJunction
 
 
-def send_data(serial_manager: ThreadSafeSerial, stop: threading.Event):
+def send_data(junction: SerialJunction, stop: threading.Event):
     """Send a message to the serial port every 100 ms."""
     while not stop.wait(0.1):
         try:
-            serial_manager.write(random.choice(["Hello\n", "World\n", "123\n"]))
+            junction.write(random.choice(["Hello\n", "World\n", "123\n"]))
         except serial.SerialException as e:
             print(f"Write failed: {e}")
 
 
-def listen_for_data(serial_manager: ThreadSafeSerial):
+def listen_for_data(junction: SerialJunction):
     """Print each line received from the serial port."""
-    while serial_manager.running:
-        data = serial_manager.readline(b"\n", timeout=1.0)
+    while junction.running:
+        data = junction.readline(b"\n", timeout=1.0)
         if data is not None:
             print(f"Received data: {data}")
 
@@ -39,17 +39,17 @@ def main():
     logging.basicConfig(level=logging.INFO)
     stop = threading.Event()
 
-    # Create a shared instance of ThreadSafeSerial
-    with ThreadSafeSerial(baudrate=115200, search_pattern=r"ACM|USB") as serial_manager:
+    # Create a shared instance of SerialJunction
+    with SerialJunction(baudrate=115200, search_pattern=r"ACM|USB") as junction:
         threads = [
-            threading.Thread(target=send_data, args=(serial_manager, stop)),
-            threading.Thread(target=listen_for_data, args=(serial_manager,)),
+            threading.Thread(target=send_data, args=(junction, stop)),
+            threading.Thread(target=listen_for_data, args=(junction,)),
         ]
         for thread in threads:
             thread.start()
 
         try:
-            while serial_manager.running:
+            while junction.running:
                 time.sleep(0.5)
         except KeyboardInterrupt:
             print("Exiting...")

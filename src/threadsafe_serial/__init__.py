@@ -1,11 +1,15 @@
-from importlib.metadata import version, PackageNotFoundError
+"""Deprecated alias for serial_junction, kept so existing imports keep working."""
+import warnings
 
-try:
-    __version__ = version("python-threadsafe-serial")
-except PackageNotFoundError:
-    __version__ = "0.0.0"
+from serial_junction import PacketReader, SerialJunction, WindowedPacketReader, __version__
 
-from .threadsafe_serial import ThreadSafeSerial
-from .packet_reader import PacketReader, WindowedPacketReader
+warnings.warn(
+    "threadsafe_serial has been renamed to serial_junction, and ThreadSafeSerial to SerialJunction. "
+    "Update your imports; this alias will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+ThreadSafeSerial = SerialJunction
 
 __all__ = ["ThreadSafeSerial", "PacketReader", "WindowedPacketReader", "__version__"]

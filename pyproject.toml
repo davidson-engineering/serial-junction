@@ -1,6 +1,6 @@
 [project]
-name = "python-threadsafe-serial"
-description = "A serial port manager, allowing concurrent connections to a serial port instance"
+name = "serial-junction"
+description = "One serial port shared safely between threads, with buffered reads and automatic reconnection"
 dynamic = ["version"]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,6 +21,10 @@ classifiers = [
 ]
 dependencies = ["pyserial>=3.1"]  # cancel_read/cancel_write
 
+[project.urls]
+Homepage = "https://github.com/davidson-engineering/serial-junction"
+Issues = "https://github.com/davidson-engineering/serial-junction/issues"
+
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
@@ -29,7 +33,7 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/threadsafe_serial"]
+packages = ["src/serial_junction", "src/threadsafe_serial"]
 
 [dependency-groups]
 dev = ["pytest>=7.1.1", "pytest-cov>=5.0.0", "coverage>=7.0", "flake8>=7.0"]
@@ -41,7 +45,7 @@ filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 
 [tool.coverage.run]
 branch = true
-source = ["src/threadsafe_serial"]
+source = ["src/serial_junction", "src/threadsafe_serial"]
 
 [tool.coverage.report]
 show_missing = true

@@ -260,7 +260,7 @@ wheels = [
 ]
 
 [[package]]
-name = "python-threadsafe-serial"
+name = "serial-junction"
 source = { editable = "." }
 dependencies = [
     { name = "pyserial" },

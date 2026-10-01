@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import serial
 
-from threadsafe_serial import ThreadSafeSerial
+from serial_junction import SerialJunction
 
 
 def port_info(device, description="USB Serial"):
@@ -221,29 +221,29 @@ class TestWriteLatest:
 
 class TestDetectDevices:
     def test_detect_matching_device(self, serial_manager):
-        with patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+        with patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[port_info("/dev/ttyUSB0")]):
             assert serial_manager.detect_devices() == ["/dev/ttyUSB0"]
 
     def test_detect_no_matching_device(self, serial_manager):
-        with patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+        with patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[port_info("/dev/ttyS0", "Standard Serial")]):
             assert serial_manager.detect_devices() is None
 
     def test_detect_multiple_devices(self, serial_manager):
         ports = [port_info("/dev/ttyUSB0"), port_info("/dev/ttyACM0", "ACM Device")]
-        with patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+        with patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=ports):
             assert len(serial_manager.detect_devices()) == 2
 
     def test_detect_empty_ports(self, serial_manager):
-        with patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+        with patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[]):
             assert serial_manager.detect_devices() is None
 
     def test_detect_devices_by_device_name(self, serial_manager):
         """detect_devices should match on device path, not just description."""
-        with patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+        with patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[port_info("/dev/ttyACM0", "Generic Serial")]):
             assert serial_manager.detect_devices() == ["/dev/ttyACM0"]
 
@@ -254,40 +254,40 @@ class TestConnect:
         assert mgr.serial is mock_serial
 
     def test_connect_with_auto_detection(self, make_manager):
-        with patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+        with patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[port_info("/dev/ttyUSB0", "USB Device")]):
             mgr = make_manager(port=None, search_pattern=r"USB")
         assert mgr.port == "/dev/ttyUSB0"
 
     def test_connect_max_retries_exceeded(self):
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial",
+        with patch("serial_junction.junction.serial.Serial",
                    side_effect=serial.SerialException("fail")), \
-             patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+             patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[]):
             with pytest.raises(serial.SerialException):
-                ThreadSafeSerial(port=None, max_reconnect_attempts=2, timeout=0.01)
+                SerialJunction(port=None, max_reconnect_attempts=2, timeout=0.01)
 
     def test_explicit_port_is_retried_instead_of_auto_detecting(self, mock_serial):
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial",
+        with patch("serial_junction.junction.serial.Serial",
                    side_effect=[serial.SerialException("busy"), serial.SerialException("busy"), mock_serial]
                    ) as opened, \
-             patch("threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports",
+             patch("serial_junction.junction.serial.tools.list_ports.comports",
                    return_value=[port_info("/dev/ttyUSB0")]) as comports, \
-             patch.object(ThreadSafeSerial, "_read_serial"), \
-             patch.object(ThreadSafeSerial, "_write_serial"):
-            mgr = ThreadSafeSerial(port="/dev/ttyUSB1", timeout=0.01)
+             patch.object(SerialJunction, "_read_serial"), \
+             patch.object(SerialJunction, "_write_serial"):
+            mgr = SerialJunction(port="/dev/ttyUSB1", timeout=0.01)
         assert [c.kwargs["port"] for c in opened.call_args_list] == ["/dev/ttyUSB1"] * 3
         comports.assert_not_called()
         assert mgr.port == "/dev/ttyUSB1"
         mgr.stop()
 
     def test_auto_detection_prefers_last_connected_device(self, make_manager):
-        comports = "threadsafe_serial.threadsafe_serial.serial.tools.list_ports.comports"
+        comports = "serial_junction.junction.serial.tools.list_ports.comports"
         with patch(comports, return_value=[port_info("/dev/ttyUSB1")]):
             mgr = make_manager(port=None)
         assert mgr.port == "/dev/ttyUSB1"
         with patch(comports, return_value=[port_info("/dev/ttyUSB0"), port_info("/dev/ttyUSB1")]), \
-             patch("threadsafe_serial.threadsafe_serial.serial.Serial") as opened:
+             patch("serial_junction.junction.serial.Serial") as opened:
             mgr._open()
         assert opened.call_args.kwargs["port"] == "/dev/ttyUSB1"
 
@@ -300,8 +300,8 @@ class TestReaderThread:
         first.read.side_effect = serial.SerialException("device disconnected")
         lines = iter([b"hi\n"])
         second.read.side_effect = lambda size=1: next(lines, None) or time.sleep(0.005) or b""
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", side_effect=[first, second]):
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", timeout=0.01)
+        with patch("serial_junction.junction.serial.Serial", side_effect=[first, second]):
+            mgr = SerialJunction(port="/dev/ttyTEST", timeout=0.01)
             try:
                 assert mgr.readline(b"\n", timeout=5) == b"hi"
                 first.close.assert_called_once()
@@ -314,8 +314,8 @@ class TestReaderThread:
     def test_write_error_triggers_reconnect(self, new_serial, wait_until):
         first, second = new_serial(), new_serial()
         first.write.side_effect = serial.SerialException("write failed")
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", side_effect=[first, second]):
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", timeout=0.01)
+        with patch("serial_junction.junction.serial.Serial", side_effect=[first, second]):
+            mgr = SerialJunction(port="/dev/ttyTEST", timeout=0.01)
             try:
                 with pytest.raises(serial.SerialException):
                     mgr.write(b"lost")
@@ -330,8 +330,8 @@ class TestReaderThread:
         first = new_serial()
         first.read.side_effect = serial.SerialException("device disconnected")
         failures = [serial.SerialException("gone")] * 2
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", side_effect=[first, *failures]):
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", timeout=0.01, max_reconnect_attempts=2)
+        with patch("serial_junction.junction.serial.Serial", side_effect=[first, *failures]):
+            mgr = SerialJunction(port="/dev/ttyTEST", timeout=0.01, max_reconnect_attempts=2)
             try:
                 assert wait_until(lambda: not mgr.running)
                 with pytest.raises(serial.SerialException) as excinfo:
@@ -355,8 +355,8 @@ class TestReaderThread:
             return b"x"
 
         ser.read.side_effect = read
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=ser) as opened:
-            mgr = ThreadSafeSerial(port="/dev/ttyTEST", timeout=0.01)
+        with patch("serial_junction.junction.serial.Serial", return_value=ser) as opened:
+            mgr = SerialJunction(port="/dev/ttyTEST", timeout=0.01)
             time.sleep(0.05)
             mgr.stop()
         assert opened.call_count == 1
@@ -375,8 +375,8 @@ class TestContextManager:
         assert serial_manager.running is False
 
     def test_with_statement(self, mock_serial):
-        with patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial):
-            with ThreadSafeSerial(port="/dev/ttyTEST", timeout=0.01) as mgr:
+        with patch("serial_junction.junction.serial.Serial", return_value=mock_serial):
+            with SerialJunction(port="/dev/ttyTEST", timeout=0.01) as mgr:
                 assert mgr.serial is mock_serial
         assert mgr.running is False
         assert not mgr.reader_thread.is_alive()

@@ -1,6 +1,10 @@
-# python-threadsafe-serial
+# serial-junction
 
-A Python library for thread-safe serial port communication. Multiple threads can read from and write to the same serial port without data corruption.
+One serial port, many threads. `serial-junction` lets any number of threads in
+your program read from and write to the same serial port safely. It buffers
+incoming bytes in the background and reconnects automatically when the device
+drops. It is a software library built on [pyserial](https://github.com/pyserial/pyserial),
+not a hardware splitter.
 
 ## Features
 
@@ -15,52 +19,55 @@ A Python library for thread-safe serial port communication. Multiple threads can
 ## Installation
 
 ```bash
-pip install git+https://github.com/davidson-engineering/python-threadsafe-serial.git
+pip install serial-junction
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv add git+https://github.com/davidson-engineering/python-threadsafe-serial.git
+uv add serial-junction
 ```
+
+The latest unreleased version installs from git:
+`pip install git+https://github.com/davidson-engineering/serial-junction.git`
 
 ## Quick start
 
 ```python
 import threading
-from threadsafe_serial import ThreadSafeSerial
+from serial_junction import SerialJunction
 
 # Auto-detects the first USB/ACM device if port is None
-serial = ThreadSafeSerial(port="/dev/ttyUSB0", baudrate=115200)
+junction = SerialJunction(port="/dev/ttyUSB0", baudrate=115200)
 
 def reader():
-    while serial.running:
-        line = serial.readline(timeout=1.0)  # waits up to 1 s for a complete line
+    while junction.running:
+        line = junction.readline(timeout=1.0)  # waits up to 1 s for a complete line
         if line is not None:
             print(f"Received: {line}")
 
 threading.Thread(target=reader, daemon=True).start()
 
 # Blocking write
-serial.write(b"HELLO\r\n")
+junction.write(b"HELLO\r\n")
 
 # Non-blocking write (only the latest value is sent)
-serial.write_latest(b"SET_SPEED 100\r\n")
+junction.write_latest(b"SET_SPEED 100\r\n")
 
-serial.stop()
+junction.stop()
 ```
 
 Or as a context manager:
 
 ```python
-with ThreadSafeSerial(baudrate=115200) as serial:
-    serial.write(b"ping\r\n")
-    data = serial.read()
+with SerialJunction(baudrate=115200) as junction:
+    junction.write(b"ping\r\n")
+    data = junction.read()
 ```
 
 ## API
 
-### ThreadSafeSerial
+### SerialJunction
 
 | Method | Description |
 |---|---|
@@ -94,7 +101,7 @@ write fails) and reopens the port every `timeout` seconds:
 ### Constructor parameters
 
 ```python
-ThreadSafeSerial(
+SerialJunction(
     port=None,              # e.g. "/dev/ttyUSB0", None for auto-detect
     baudrate=9600,
     timeout=1,
@@ -111,11 +118,11 @@ ThreadSafeSerial(
 For binary protocols with start/end byte framing:
 
 ```python
-from threadsafe_serial import ThreadSafeSerial, WindowedPacketReader
+from serial_junction import SerialJunction, WindowedPacketReader
 
-serial = ThreadSafeSerial(port="/dev/ttyACM0", baudrate=115200)
+junction = SerialJunction(port="/dev/ttyACM0", baudrate=115200)
 reader = WindowedPacketReader(
-    read_callback=serial.read,
+    read_callback=junction.read,
     window_size=10,
     start_byte=0xA5,
     end_byte=0x5A,
@@ -127,6 +134,19 @@ packet = reader.read_packet()  # returns payload bytes or None on timeout
 `read_callback` may return any number of bytes per call. Bytes after a packet
 are kept for the next `read_packet()` call. When the callback returns nothing,
 the reader sleeps `poll_interval` seconds (default 1 ms) before polling again.
+
+## Migrating from threadsafe-serial
+
+This package was previously named `python-threadsafe-serial`. The old imports
+still work but emit a `DeprecationWarning`:
+
+| Before | After |
+|---|---|
+| `from threadsafe_serial import ThreadSafeSerial` | `from serial_junction import SerialJunction` |
+| `threadsafe_serial.threadsafe_serial` | `serial_junction.junction` |
+| `threadsafe_serial.packet_reader` | `serial_junction.packet_reader` |
+
+Log records now come from the `serial_junction.junction` logger.
 
 ## Development
 

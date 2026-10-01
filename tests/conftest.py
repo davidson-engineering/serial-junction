@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import serial
 
-from threadsafe_serial import ThreadSafeSerial
+from serial_junction import SerialJunction
 
 
 def new_mock_serial():
@@ -37,7 +37,7 @@ def mock_serial():
 
 @pytest.fixture
 def make_manager(mock_serial):
-    """Build ThreadSafeSerial instances on mock_serial, stopped at teardown.
+    """Build SerialJunction instances on mock_serial, stopped at teardown.
 
     Background threads are suppressed unless reader/writer is True.
     """
@@ -47,15 +47,15 @@ def make_manager(mock_serial):
         kwargs.setdefault("port", "/dev/ttyTEST")
         kwargs.setdefault("baudrate", 9600)
         kwargs.setdefault("timeout", 0.01)
-        patches = [patch("threadsafe_serial.threadsafe_serial.serial.Serial", return_value=mock_serial)]
+        patches = [patch("serial_junction.junction.serial.Serial", return_value=mock_serial)]
         if not reader:
-            patches.append(patch.object(ThreadSafeSerial, "_read_serial"))
+            patches.append(patch.object(SerialJunction, "_read_serial"))
         if not writer:
-            patches.append(patch.object(ThreadSafeSerial, "_write_serial"))
+            patches.append(patch.object(SerialJunction, "_write_serial"))
         for p in patches:
             p.start()
         try:
-            mgr = ThreadSafeSerial(**kwargs)
+            mgr = SerialJunction(**kwargs)
         finally:
             for p in patches:
                 p.stop()
@@ -69,7 +69,7 @@ def make_manager(mock_serial):
 
 @pytest.fixture
 def serial_manager(make_manager):
-    """A ThreadSafeSerial on a mocked port with background threads suppressed."""
+    """A SerialJunction on a mocked port with background threads suppressed."""
     return make_manager()
 
 

@@ -1,4 +1,4 @@
-from threadsafe_serial.threadsafe_serial import truncate_data
+from serial_junction.junction import truncate_data
 
 
 class TestTruncateData:

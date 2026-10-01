@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from threadsafe_serial.packet_reader import PacketReader, WindowedPacketReader
+from serial_junction.packet_reader import PacketReader, WindowedPacketReader
 
 
 class TestPacketReaderABC:
@@ -100,7 +100,7 @@ def chunks(*parts):
 
 
 class TestWindowedPacketReaderChunking:
-    """read_callback returning arbitrary chunks, as ThreadSafeSerial.read does."""
+    """read_callback returning arbitrary chunks, as SerialJunction.read does."""
 
     def test_two_packets_in_one_chunk(self):
         reader = WindowedPacketReader(chunks(PACKET + PACKET), window_size=5, timeout=0.05)
@@ -137,7 +137,7 @@ class TestWindowedPacketReaderChunking:
 
     def test_sleeps_between_empty_polls(self):
         reader = WindowedPacketReader(lambda: None, window_size=5, timeout=0.05, poll_interval=0.01)
-        with patch("threadsafe_serial.packet_reader.time.sleep", wraps=time.sleep) as sleep:
+        with patch("serial_junction.packet_reader.time.sleep", wraps=time.sleep) as sleep:
             assert reader.read_packet() is None
         assert sleep.call_count >= 1
         assert all(c.args == (0.01,) for c in sleep.call_args_list)

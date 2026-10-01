@@ -1,4 +1,4 @@
-"""Stress tests for ThreadSafeSerial concurrency and buffer handling."""
+"""Stress tests for SerialJunction concurrency and buffer handling."""
 
 import threading
 import time
