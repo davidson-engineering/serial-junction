@@ -3,10 +3,10 @@
 import threading
 import time
 
-
 # ---------------------------------------------------------------------------
 # Concurrent buffer access
 # ---------------------------------------------------------------------------
+
 
 class TestConcurrentBufferAccess:
     """Verify buffer integrity under concurrent read/write from multiple threads."""
@@ -18,8 +18,8 @@ class TestConcurrentBufferAccess:
         msg = b"ABCDEFGHIJ"  # 10 bytes each
 
         # Pre-fill buffer
-        mgr.input_buffer.extend(msg * num_messages)
-        assert len(mgr.input_buffer) == num_messages * len(msg)
+        mgr._buffer.extend(msg * num_messages)
+        assert len(mgr._buffer) == num_messages * len(msg)
 
         results = []
         lock = threading.Lock()
@@ -43,7 +43,7 @@ class TestConcurrentBufferAccess:
         # Reconstruct and verify no corruption
         combined = b"".join(results)
         assert combined == msg * num_messages
-        assert len(mgr.input_buffer) == 0
+        assert len(mgr._buffer) == 0
 
     def test_concurrent_write_and_read(self, serial_manager, feed):
         """One thread extends the buffer while another reads - no crashes or data loss."""
@@ -80,7 +80,7 @@ class TestConcurrentBufferAccess:
         num_lines = 200
         line = b"hello\r\n"
 
-        mgr.input_buffer.extend(line * num_lines)
+        mgr._buffer.extend(line * num_lines)
 
         results = []
         lock = threading.Lock()
@@ -101,7 +101,7 @@ class TestConcurrentBufferAccess:
 
         assert len(results) == num_lines
         assert all(r == b"hello" for r in results)
-        assert len(mgr.input_buffer) == 0
+        assert len(mgr._buffer) == 0
 
     def test_blocking_readers_each_get_whole_lines(self, serial_manager, feed):
         """Readers blocked in readline() are woken by new data and never split a line."""
@@ -135,6 +135,7 @@ class TestConcurrentBufferAccess:
 # write_latest concurrency
 # ---------------------------------------------------------------------------
 
+
 class TestWriteLatestConcurrency:
     """Verify write_latest is safe under concurrent access."""
 
@@ -158,12 +159,15 @@ class TestWriteLatestConcurrency:
 
         # Each thread's last write is a candidate for the surviving value
         assert mgr._latest_write_event.is_set()
-        assert mgr._latest_write_data in {f"t{tid}-{writes_per_thread - 1}".encode() for tid in range(num_threads)}
+        assert mgr._latest_write_data in {
+            f"t{tid}-{writes_per_thread - 1}".encode() for tid in range(num_threads)
+        }
 
 
 # ---------------------------------------------------------------------------
 # Large buffer operations
 # ---------------------------------------------------------------------------
+
 
 class TestLargeBufferOperations:
     """Test buffer operations with large data volumes."""
@@ -172,30 +176,30 @@ class TestLargeBufferOperations:
         """Reading a large buffer should work correctly."""
         mgr = serial_manager
         large_data = b"X" * 1_000_000  # 1MB
-        mgr.input_buffer.extend(large_data)
+        mgr._buffer.extend(large_data)
 
         result = mgr.read()
         assert len(result) == 1_000_000
         assert result == large_data
-        assert len(mgr.input_buffer) == 0
+        assert len(mgr._buffer) == 0
 
     def test_large_buffer_read_until(self, serial_manager):
         """read_until should handle large payloads between delimiters."""
         mgr = serial_manager
         payload = b"A" * 100_000 + b"\r\n" + b"B" * 50_000
-        mgr.input_buffer.extend(payload)
+        mgr._buffer.extend(payload)
 
         result = mgr.read_until(b"\r\n")
         assert len(result) == 100_000
         assert result == b"A" * 100_000
-        assert bytes(mgr.input_buffer) == b"B" * 50_000
+        assert bytes(mgr._buffer) == b"B" * 50_000
 
     def test_many_small_read_until(self, serial_manager):
         """Rapidly consuming many small delimited messages."""
         mgr = serial_manager
         num_messages = 10_000
         msg = b"msg\r\n"
-        mgr.input_buffer.extend(msg * num_messages)
+        mgr._buffer.extend(msg * num_messages)
 
         count = 0
         while True:
@@ -206,13 +210,13 @@ class TestLargeBufferOperations:
             count += 1
 
         assert count == num_messages
-        assert len(mgr.input_buffer) == 0
+        assert len(mgr._buffer) == 0
 
     def test_partial_reads_accumulate_correctly(self, serial_manager):
         """Many small partial reads should collectively return all data."""
         mgr = serial_manager
         total = 50_000
-        mgr.input_buffer.extend(b"Z" * total)
+        mgr._buffer.extend(b"Z" * total)
 
         collected = bytearray()
         while len(collected) < total:
@@ -228,6 +232,7 @@ class TestLargeBufferOperations:
 # ---------------------------------------------------------------------------
 # Write under load
 # ---------------------------------------------------------------------------
+
 
 class TestWriteUnderLoad:
     """Test blocking write under concurrent pressure."""
@@ -307,7 +312,9 @@ class TestWriteUnderLoad:
         t.join(timeout=5)
 
         sent = [c.args[0] for c in mock_serial.write.call_args_list]
-        assert [s for s in sent if s.startswith(b"block-")] == [f"block-{i}\n".encode() for i in range(200)]
+        assert [s for s in sent if s.startswith(b"block-")] == [
+            f"block-{i}\n".encode() for i in range(200)
+        ]
         assert any(s.startswith(b"latest-") for s in sent)
 
 
@@ -315,13 +322,14 @@ class TestWriteUnderLoad:
 # Edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestEdgeCases:
     """Edge cases and boundary conditions."""
 
     def test_read_until_multiple_delimiters(self, serial_manager):
         """Buffer with multiple delimiters - each read_until gets the next one."""
         mgr = serial_manager
-        mgr.input_buffer.extend(b"a\r\nb\r\nc\r\n")
+        mgr._buffer.extend(b"a\r\nb\r\nc\r\n")
 
         assert mgr.read_until(b"\r\n") == b"a"
         assert mgr.read_until(b"\r\n") == b"b"
@@ -331,18 +339,18 @@ class TestEdgeCases:
     def test_read_until_multi_byte_delimiter(self, serial_manager):
         """Delimiter longer than 2 bytes."""
         mgr = serial_manager
-        mgr.input_buffer.extend(b"helloENDworld")
+        mgr._buffer.extend(b"helloENDworld")
 
         assert mgr.read_until(b"END") == b"hello"
-        assert bytes(mgr.input_buffer) == b"world"
+        assert bytes(mgr._buffer) == b"world"
 
     def test_read_until_delimiter_is_entire_buffer(self, serial_manager):
         """Buffer contains only the delimiter."""
         mgr = serial_manager
-        mgr.input_buffer.extend(b"\r\n")
+        mgr._buffer.extend(b"\r\n")
 
         assert mgr.read_until(b"\r\n") == b""
-        assert len(mgr.input_buffer) == 0
+        assert len(mgr._buffer) == 0
 
     def test_write_empty_bytes(self, serial_manager, mock_serial):
         serial_manager.write(b"")
@@ -356,7 +364,7 @@ class TestEdgeCases:
         """Filling and draining the buffer repeatedly keeps in_waiting accurate."""
         mgr = serial_manager
         for _ in range(100):
-            mgr.input_buffer.extend(b"data")
+            mgr._buffer.extend(b"data")
             assert mgr.in_waiting == 4
             mgr.read()
             assert mgr.in_waiting == 0

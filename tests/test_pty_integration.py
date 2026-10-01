@@ -5,6 +5,7 @@ SerialJunction opens the slave through pyserial exactly as it would open a
 USB adapter. The slave is reached through a symlink, so it has a stable path
 like /dev/ttyUSB0, and unplugging closes the pty and removes that path.
 """
+
 import os
 import select
 import sys
@@ -81,6 +82,7 @@ def connect():
 
     def make(port, **kwargs):
         kwargs.setdefault("timeout", 0.05)
+        kwargs.setdefault("reconnect_delay", 0.05)
         junction = SerialJunction(port=port, baudrate=115200, **kwargs)
         instances.append(junction)
         return junction
@@ -108,8 +110,8 @@ def test_threads_survive_unplug_and_replug(device, connect, wait_until):
     dev.plug()
     assert wait_until(lambda: junction.is_open)
 
-    assert junction.reader_thread.is_alive()
-    assert junction.writer_thread.is_alive()
+    assert junction._reader_thread.is_alive()
+    assert junction._writer_thread.is_alive()
     junction.write_latest(b"after")
     assert dev.receive(5) == b"after"
     dev.send(b"hello\r\n")
@@ -180,26 +182,29 @@ def test_gives_up_after_max_reconnect_attempts(device, connect, wait_until):
     assert junction.readline(timeout=None) is None  # blocked readers are released, not hung
 
 
+def send_continuously(dev, flowing):
+    """Keep the line busy, like a device streaming data, until `flowing` is cleared."""
+    while flowing.is_set():
+        try:
+            dev.send(b"x" * 64)
+        except BlockingIOError:
+            pass
+        except OSError:
+            return
+        time.sleep(0.0005)
+
+
 def test_stop_under_traffic_keeps_port_closed(device):
     for i in range(20):
         dev = device(f"tty{i}")
         flowing = threading.Event()
         flowing.set()
-
-        def traffic():
-            while flowing.is_set():
-                try:
-                    dev.send(b"x" * 64)
-                except BlockingIOError:
-                    pass
-                except OSError:
-                    return
-                time.sleep(0.0005)
-
-        feeder = threading.Thread(target=traffic)
+        feeder = threading.Thread(target=send_continuously, args=(dev, flowing))
         feeder.start()
         with patch("serial_junction.junction.serial.Serial", wraps=serial.Serial) as opened:
-            junction = SerialJunction(port=dev.path, baudrate=115200, timeout=0.05)
+            junction = SerialJunction(
+                port=dev.path, baudrate=115200, timeout=0.05, reconnect_delay=0.05
+            )
             time.sleep(0.02)
             junction.stop()
         flowing.clear()
@@ -208,9 +213,9 @@ def test_stop_under_traffic_keeps_port_closed(device):
         assert opened.call_count == 1  # stop() must never trigger a reconnect
         assert not junction.running
         assert not junction.is_open
-        assert not junction.serial.is_open
-        assert not junction.reader_thread.is_alive()
-        assert not junction.writer_thread.is_alive()
+        assert not junction._serial.is_open
+        assert not junction._reader_thread.is_alive()
+        assert not junction._writer_thread.is_alive()
         dev.close()
 
 
@@ -237,7 +242,8 @@ def test_blocked_write_does_not_stall_reads(device, connect):
     junction.stop()  # cancels the blocked write
     writer.join(timeout=5)
     assert not writer.is_alive()
-    assert len(errors) == 1 and "interrupted" in str(errors[0])
+    assert len(errors) == 1
+    assert "interrupted" in str(errors[0])
 
 
 def test_blocking_readline_does_not_spin(device, connect):

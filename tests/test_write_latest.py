@@ -4,13 +4,12 @@ import threading
 import time
 
 import pytest
-
 import serial
-
 
 # ---------------------------------------------------------------------------
 # Basic write_latest behavior
 # ---------------------------------------------------------------------------
+
 
 class TestWriteLatestBasic:
     def test_sets_data_and_event(self, serial_manager):
@@ -54,6 +53,7 @@ class TestWriteLatestBasic:
 # ---------------------------------------------------------------------------
 # Live _write_serial thread
 # ---------------------------------------------------------------------------
+
 
 class TestWriteSerialThread:
     """The real _write_serial thread against a mocked port."""
@@ -133,12 +133,13 @@ class TestWriteSerialThread:
     def test_thread_stops_on_stop(self, make_manager):
         mgr = make_manager(writer=True)
         mgr.stop()
-        assert not mgr.writer_thread.is_alive()
+        assert not mgr._writer_thread.is_alive()
 
 
 # ---------------------------------------------------------------------------
 # Concurrent write + write_latest interaction
 # ---------------------------------------------------------------------------
+
 
 class TestWriteAndWriteLatestInteraction:
     """Verify write() and write_latest() don't interfere with each other."""

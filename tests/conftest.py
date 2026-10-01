@@ -1,8 +1,7 @@
 import time
-
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 import serial
 
 from serial_junction import SerialJunction
@@ -47,6 +46,7 @@ def make_manager(mock_serial):
         kwargs.setdefault("port", "/dev/ttyTEST")
         kwargs.setdefault("baudrate", 9600)
         kwargs.setdefault("timeout", 0.01)
+        kwargs.setdefault("reconnect_delay", 0.01)
         patches = [patch("serial_junction.junction.serial.Serial", return_value=mock_serial)]
         if not reader:
             patches.append(patch.object(SerialJunction, "_read_serial"))
@@ -76,16 +76,19 @@ def serial_manager(make_manager):
 @pytest.fixture
 def feed():
     """Append bytes to a manager's input buffer the way the reader thread does."""
+
     def feed(mgr, data):
         with mgr._buffer_ready:
-            mgr.input_buffer.extend(data)
+            mgr._buffer.extend(data)
             mgr._buffer_ready.notify_all()
+
     return feed
 
 
 @pytest.fixture
 def wait_until():
     """Poll a condition until it holds or the timeout expires; returns the final result."""
+
     def wait_until(condition, timeout=5.0):
         deadline = time.monotonic() + timeout
         while not condition():
@@ -93,4 +96,5 @@ def wait_until():
                 return False
             time.sleep(0.01)
         return True
+
     return wait_until
